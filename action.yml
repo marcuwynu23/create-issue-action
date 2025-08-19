@@ -49,6 +49,10 @@ inputs:
     description: "If true, add a short comment when reusing to bump activity/order"
     required: false
     default: "true"
+  reuse_match_labels:
+    description: "If true, match the issue by labels in addition to the title"
+    required: false
+    default: "true"
 
 outputs:
   json:
