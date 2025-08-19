@@ -1,99 +1,61 @@
 const Core = require("@actions/core");
 const Github = require("@actions/github");
 
-const listToArray = (str) => {
-  const arr = str.split(",");
-  for (let i = 0; i < arr.length; i++) arr[i] = arr[i].trim();
-  return arr;
-};
-
-const asBool = (v, def = false) => {
-  if (v === undefined || v === null || v === "") return def;
-  if (typeof v === "boolean") return v;
-  return /^(true|1|yes)$/i.test(String(v).trim());
-};
+const listToArray = (str) => str.split(",").map(s => s.trim()).filter(Boolean);
+const asBool = (v, def = false) => (v == null || v === "" ? def : /^(true|1|yes)$/i.test(String(v).trim()));
 
 (async () => {
   try {
-    const rtrue = {required: true};
+    const rtrue = { required: true };
     const token = Core.getInput("token", rtrue);
 
     const repoContext = Github.context.repo;
     const owner = Core.getInput("owner") || repoContext.owner;
-    const repo = Core.getInput("repo") || repoContext.repo;
+    const repo  = Core.getInput("repo")  || repoContext.repo;
     const title = Core.getInput("title", rtrue);
 
     // optional
-    const body = Core.getInput("body");
-    const milestone = Core.getInput("milestone");
-    const labelsStr = Core.getInput("labels");
-    const assignees = Core.getInput("assignees");
+    const body       = Core.getInput("body");
+    const milestone  = Core.getInput("milestone");
+    const labelsStr  = Core.getInput("labels");
+    const assignees  = Core.getInput("assignees");
 
     // reuse options
-    const reuse = asBool(Core.getInput("reuse"), false);
-    const reuseReopen = asBool(Core.getInput("reuse_reopen"), true);
-    const bumpWithComment = asBool(
-      Core.getInput("reuse_bump_with_comment"),
-      true
-    );
-    const reuseMatchLabels = asBool(Core.getInput("reuse_match_labels"), true); // new, default true
-
-    Core.debug(`owner=${owner} repo=${repo}`);
-    Core.debug(`title=${title}`);
-    Core.debug(`labelsStr=${labelsStr}`);
-    Core.debug(
-      `reuse=${reuse} reuseReopen=${reuseReopen} bumpWithComment=${bumpWithComment} reuseMatchLabels=${reuseMatchLabels}`
-    );
+    const reuse                = asBool(Core.getInput("reuse"), false);
+    const reuseReopen          = asBool(Core.getInput("reuse_reopen"), true);
+    const bumpWithComment      = asBool(Core.getInput("reuse_bump_with_comment"), true);
+    const reuseMatchLabels     = asBool(Core.getInput("reuse_match_labels"), true); // default true
+    const reuseCloseOthers     = asBool(Core.getInput("reuse_close_others"), false); // NEW: default false
+    const closeOthersComment   = Core.getInput("reuse_close_others_comment") || "Closing as duplicate of canonical issue.";
 
     const octokit = Github.getOctokit(token);
 
-    // Build base options for creation/update
     const parsedLabels = labelsStr ? listToArray(labelsStr) : null;
     const optsBase = Object.fromEntries(
       Object.entries({
-        owner,
-        repo,
-        title,
+        owner, repo, title,
         body: body === "" ? null : body,
         milestone: milestone === "" ? null : milestone,
         labels: parsedLabels,
         assignees: assignees ? listToArray(assignees) : null,
-      }).filter(([_, v]) => v != null)
+      }).filter(([, v]) => v != null)
     );
 
     async function fetchIssue(number) {
-      const {data} = await octokit.rest.issues.get({
-        owner,
-        repo,
-        issue_number: number,
-      });
+      const { data } = await octokit.rest.issues.get({ owner, repo, issue_number: number });
       return data;
     }
 
-    // Helper to find an issue by exact title.
-    // Strategy:
-    //  1) listForRepo with labels (if provided & reuseMatchLabels)
-    //  2) listForRepo without labels (title-only)
-    //  3) search API (exact title; robust fallback)
+    // Find ONE by exact title (labels optional), with fallbacks.
     async function findIssueByTitle(state) {
       const per_page = 100;
 
-      // Pass 1: with labels (AND semantics). Only if labels provided & enabled.
+      // Pass 1: with labels (AND semantics)
       if (labelsStr && labelsStr.trim() && reuseMatchLabels) {
         let page = 1;
         while (true) {
-          const {data} = await octokit.rest.issues.listForRepo({
-            owner,
-            repo,
-            state,
-            per_page,
-            page,
-            labels: labelsStr,
-          });
-          const found = data.find((i) => !i.pull_request && i.title === title);
-          Core.debug(
-            `[findIssueByTitle] pass=labels state=${state} page=${page} found=${!!found}`
-          );
+          const { data } = await octokit.rest.issues.listForRepo({ owner, repo, state, per_page, page, labels: labelsStr });
+          const found = data.find(i => !i.pull_request && i.title === title);
           if (found) return found;
           if (data.length < per_page) break;
           page++;
@@ -104,128 +66,117 @@ const asBool = (v, def = false) => {
       {
         let page = 1;
         while (true) {
-          const {data} = await octokit.rest.issues.listForRepo({
-            owner,
-            repo,
-            state,
-            per_page,
-            page,
-          });
-          const found = data.find((i) => !i.pull_request && i.title === title);
-          Core.debug(
-            `[findIssueByTitle] pass=title-only state=${state} page=${page} found=${!!found}`
-          );
+          const { data } = await octokit.rest.issues.listForRepo({ owner, repo, state, per_page, page });
+          const found = data.find(i => !i.pull_request && i.title === title);
           if (found) return found;
           if (data.length < per_page) break;
           page++;
         }
       }
 
-      // Pass 3: Search API (exact title)
-      const q = `repo:${owner}/${repo} is:issue in:title "${title.replace(
-        /"/g,
-        '\\"'
-      )}" ${
-        state === "open"
-          ? "state:open"
-          : state === "closed"
-          ? "state:closed"
-          : ""
-      }`;
+      // Pass 3: search fallback
+      const q = `repo:${owner}/${repo} is:issue in:title "${title.replace(/"/g, '\\"')}" ${state === "open" ? "state:open" : state === "closed" ? "state:closed" : ""}`;
       try {
-        const {data} = await octokit.rest.search.issuesAndPullRequests({
-          q,
-          per_page: 20,
-        });
-        const item = (data.items || []).find(
-          (i) => !i.pull_request && i.title === title
-        );
-        Core.debug(
-          `[findIssueByTitle] pass=search state=${state} found=${!!item}`
-        );
-        if (item) {
-          // normalize via a get call to have full shape (labels, html_url, etc.)
-          return await fetchIssue(item.number);
-        }
-      } catch (e) {
-        Core.debug(`[findIssueByTitle] search error: ${e.message}`);
-      }
+        const { data } = await octokit.rest.search.issuesAndPullRequests({ q, per_page: 20 });
+        const item = (data.items || []).find(i => !i.pull_request && i.title === title);
+        if (item) return await fetchIssue(item.number);
+      } catch (e) { /* noop */ }
+
       return null;
     }
 
-    if (reuse) {
-      // 1) Try OPEN
-      let issue = await findIssueByTitle("open");
+    // Find ALL issues (open or closed) that match the same title (and labels if configured)
+    async function findAllIssuesByTitle() {
+      const per_page = 100;
+      const results = [];
 
-      // 2) Else CLOSED (potentially reopen)
-      let reopened = false;
-      if (!issue) {
-        const closed = await findIssueByTitle("closed");
-        if (closed && reuseReopen) {
-          await octokit.rest.issues.update({
-            owner,
-            repo,
-            issue_number: closed.number,
-            state: "open",
-          });
-          issue = await fetchIssue(closed.number);
-          reopened = true;
-          Core.info(`Reopened existing issue #${issue.number}`);
-        } else if (closed) {
-          issue = closed; // keep closed but still update/comment if desired
-          Core.info(
-            `Found closed issue #${issue.number} (not reopened due to reuse_reopen=false)`
-          );
+      async function collect(state, withLabels) {
+        let page = 1;
+        while (true) {
+          const params = { owner, repo, state, per_page, page };
+          if (withLabels && labelsStr && labelsStr.trim()) params.labels = labelsStr;
+          const { data } = await octokit.rest.issues.listForRepo(params);
+          results.push(...data.filter(i => !i.pull_request && i.title === title));
+          if (data.length < per_page) break;
+          page++;
         }
       }
 
-      if (issue) {
-        // Update body if provided
-        if (body && body.trim()) {
-          const {data: updated} = await octokit.rest.issues.update({
-            owner,
-            repo,
-            issue_number: issue.number,
-            body,
-          });
-          issue = updated;
-          Core.info(`Updated issue body for #${issue.number}`);
-        }
-
-        // Bump with comment
-        if (bumpWithComment) {
-          const ts = new Date().toISOString();
-          await octokit.rest.issues.createComment({
-            owner,
-            repo,
-            issue_number: issue.number,
-            body: `🔄 ${reopened ? "Reopened" : "Updated"} on ${ts}`,
-          });
-          Core.info(`Added bump comment to issue #${issue.number}`);
-        }
-
-        // Outputs point to the reused issue (fresh copy)
-        Core.setOutput("json", JSON.stringify(issue));
-        Core.setOutput("number", issue.number);
-        Core.setOutput("html_url", issue.html_url);
-        Core.info(`Reused: ${issue.html_url}`);
-        return;
+      if (reuseMatchLabels && labelsStr && labelsStr.trim()) {
+        await collect("open", true);
+        await collect("closed", true);
+      } else {
+        await collect("open", false);
+        await collect("closed", false);
       }
-
-      Core.info("No existing issue found to reuse; creating a new one…");
+      // de-dup
+      const map = new Map();
+      for (const i of results) map.set(i.number, i);
+      return Array.from(map.values());
     }
 
-    // Create new issue (default behavior)
-    Core.debug(
-      `Object for new issue: """${JSON.stringify(optsBase, null, 2)}"""`
-    );
-    const newIssue = await octokit.rest.issues.create(optsBase);
-    Core.info(`Created: ${newIssue.data.html_url}`);
-    Core.setOutput("json", JSON.stringify(newIssue.data));
-    Core.setOutput("number", newIssue.data.number);
-    Core.setOutput("html_url", newIssue.data.html_url);
+    let canonical = null;
+    let reopened = false;
+
+    if (reuse) {
+      canonical = await findIssueByTitle("open");
+      if (!canonical) {
+        const closed = await findIssueByTitle("closed");
+        if (closed && reuseReopen) {
+          await octokit.rest.issues.update({ owner, repo, issue_number: closed.number, state: "open" });
+          canonical = await fetchIssue(closed.number);
+          reopened = true;
+        } else if (closed) {
+          canonical = closed; // keep closed if not reopening
+        }
+      }
+
+      if (canonical) {
+        if (body && body.trim()) {
+          const { data: updated } = await octokit.rest.issues.update({
+            owner, repo, issue_number: canonical.number, body
+          });
+          canonical = updated;
+        }
+        if (bumpWithComment) {
+          await octokit.rest.issues.createComment({
+            owner, repo, issue_number: canonical.number,
+            body: `🔄 ${reopened ? "Reopened" : "Updated"} on ${new Date().toISOString()}`
+          });
+        }
+      }
+    }
+
+    // If no canonical yet, create a new one
+    if (!canonical) {
+      const { data } = await octokit.rest.issues.create(optsBase);
+      canonical = data;
+    }
+
+    // Optionally close all other duplicates
+    if (reuseCloseOthers) {
+      const all = await findAllIssuesByTitle();
+      for (const i of all) {
+        if (i.number === canonical.number) continue;
+        if (i.state !== "closed") {
+          // add comment linking to canonical before closing
+          await octokit.rest.issues.createComment({
+            owner, repo, issue_number: i.number,
+            body: `${closeOthersComment}\n\nCanonical: #${canonical.number} (${canonical.html_url})`
+          });
+          await octokit.rest.issues.update({ owner, repo, issue_number: i.number, state: "closed" });
+        }
+      }
+    }
+
+    // Outputs point to canonical
+    Core.setOutput("json", JSON.stringify(canonical));
+    Core.setOutput("number", canonical.number);
+    Core.setOutput("html_url", canonical.html_url);
+    Core.info(`Canonical issue: #${canonical.number} → ${canonical.html_url}`);
+
   } catch (err) {
     Core.error(err);
-    Core.setFailed("Request to create new issue failed");
+    Core.setFailed("Request to create/reuse/close issues failed");
   }
 })();

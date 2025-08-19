@@ -53,6 +53,14 @@ inputs:
     description: "If true, match the issue by labels in addition to the title"
     required: false
     default: "true"
+  reuse_close_others:
+    description: "Close all other issues that match the same title (and labels if reuse_match_labels)"
+    required: false
+    default: "false"
+  reuse_close_others_comment:
+    description: "Comment to post before closing duplicates"
+    required: false
+    default: "Closing as duplicate of canonical issue."
 
 outputs:
   json:
