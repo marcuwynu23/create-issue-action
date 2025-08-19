@@ -37,27 +37,11 @@ inputs:
     required: false
 
   # ── New reuse options ─────────────────────────────────────────────────────────
-  reuse:
-    description: "If true, reuse an existing issue with the same title (and labels if provided) instead of creating a new one"
-    required: false
-    default: "false"
-  reuse_reopen:
-    description: "If true and the matching issue is closed, reopen it before updating"
-    required: false
-    default: "true"
-  reuse_bump_with_comment:
-    description: "If true, add a short comment when reusing to bump activity/order"
-    required: false
-    default: "true"
-  reuse_match_labels:
+  match_labels:
     description: "If true, match the issue by labels in addition to the title"
     required: false
     default: "true"
-  reuse_close_others:
-    description: "Close all other issues that match the same title (and labels if reuse_match_labels)"
-    required: false
-    default: "false"
-  reuse_close_others_comment:
+  close_comment:
     description: "Comment to post before closing duplicates"
     required: false
     default: "Closing as duplicate of canonical issue."
