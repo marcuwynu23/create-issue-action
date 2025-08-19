@@ -4,7 +4,7 @@ The #1 simple and awesome create-issue action on GitHub. 🌟
 
 Basically a converter that takes your yaml entry and connects it to the rest endpoint to create an issue on GitHub.
 
-## Quick Start (or [jump to advanced](https://github.com/dacbd/create-issue-action#generate-advanced-report)):
+## Quick Start (or [jump to advanced](#generate-advanced-report)):
 
 ```yml
 steps:
@@ -17,131 +17,129 @@ steps:
       body: my new issue
 ```
 
+---
+
+## ✨ New: Reuse an existing issue (avoid duplicates)
+
+Set `reuse: "true"` to **reuse an existing issue** with the same `title` (and, if provided, matching `labels`), instead of creating a new one.  
+When reusing, the action can **update the body**, **reopen** a closed match, and optionally **add a small comment** to bump the issue to the top.
+
+```yml
+steps:
+  - uses: actions/checkout@v4
+
+  - name: Create or reuse issue
+    uses: dacbd/create-issue-action@main
+    with:
+      token: ${{ github.token }}
+      title: "🚀 Pending Production Merge for User Frontend"
+      body: |
+        A successful deployment was made to STAGING from the `develop` branch for the **User Frontend**.
+
+        - ✅ Commit: `${{ github.sha }}`
+        - 👤 Triggered by: `${{ github.actor }}`
+        - 📅 Time: `${{ github.event.head_commit.timestamp || github.run_id }}`
+
+        _This issue was automatically updated after successful deployment._
+      labels: "deployment,review,production"
+
+      # 🔽 new options
+      reuse: "true"                   # try to reuse instead of creating a duplicate
+      reuse_reopen: "true"            # if the match is closed, reopen it (default: true)
+      reuse_bump_with_comment: "true" # add a short comment so it shows at the top (default: true)
+```
+
+**Matching rules:**
+- The action first looks for an **open** issue with the **same title** (and **labels** if you passed them).
+- If none is open, it looks for a **closed** match and **reopens** it when `reuse_reopen: "true"`.
+- If no match is found, it **creates a new issue** (original behavior).
+- When reusing, if `body` is provided, the issue **body is replaced** with the new content.
+- When `reuse_bump_with_comment: "true"`, the action posts a small comment to **bump activity/order**.
+
+> Outputs (`json`, `number`, `html_url`) always point to the **issue actually used** (reused or newly created).
+
+---
+
 ## Configure
 
 ### Inputs (through `with:`)
 
 | Option  | Default Value  | Notes  |
 | ------------ | ------------ | ------------ |
-| token      | github.token / `required`  | Use `${{ github.token }}` (same as `${{secrets.GITHUB_TOKEN}}`) or create a PAT stored in the secrets store.   |
-| owner      | github.context.repo.owner  | The owner of the repo to make the issue on. Implied from the context of the running action.  |
-| repo       | github.context.repo.repo   | The repo to make the issue on. Implied from the context of the running action.  |
+| token      | github.token / `required`  | Use `${{ github.token }}` (same as `${{secrets.GITHUB_TOKEN}}`) or a PAT stored in secrets.   |
+| owner      | github.context.repo.owner  | Owner of the target repo. Implied from context.  |
+| repo       | github.context.repo.repo   | Repo name. Implied from context.  |
 | title      | `required`                 |   |
-| body       |                            |   |
+| body       |                            | If set during reuse, replaces the existing issue body.  |
 | milestone  |                            |   |
-| labels     |                            | A comma seperated list of labels  |
-| assignees  |                            | A comma seperated list of GitHub usernames to assign the issue to  |
+| labels     |                            | Comma-separated labels. Also used during reuse matching. |
+| assignees  |                            | Comma-separated GitHub usernames. |
+
+### ➕ New reuse options
+
+| Option  | Default Value  | Notes  |
+| ------------ | ------------ | ------------ |
+| reuse | `"false"` | If `"true"`, reuse an existing issue with the same `title` (and `labels` if provided) before creating a new one. |
+| reuse_reopen | `"true"` | If a matching issue is **closed**, reopen it and then update. |
+| reuse_bump_with_comment | `"true"` | When reusing, add a short comment (e.g., “Updated on …”) to bump activity/order. |
 
 ### Outputs
 
 | output | value |
 | ------ | ----- |
-| json | [See Response](https://docs.github.com/en/rest/issues/issues#create-an-issue) |
-| html_url | the issue's web url |
-| number | the issue's number |
+| json | [See Response](https://docs.github.com/en/rest/issues/issues#create-an-issue) (created **or** reused issue) |
+| html_url | the issue’s web url |
+| number | the issue’s number |
 
-## Usage
+---
 
-> [!NOTE]
-> Limited testing has been done, and only on `ubuntu-latest`.
-> We welcome tester volunteers!
+## Usage Examples
 
-### Generate Advanced Report
+### Reuse for deployment notifications (no duplicates)
 
 ```yml
-name: Your Awesome Workflow
-...
+- name: Create or reuse “Pending Production Merge” issue
+  uses: dacbd/create-issue-action@main
+  with:
+    token: ${{ github.token }}
+    title: "🚀 Pending Production Merge for User Frontend"
+    labels: "deployment,review,production"
+    body: |
+      Deployment to STAGING succeeded.
+      - Commit: `${{ github.sha }}`
+      - Actor: `${{ github.actor }}`
+      - Time: `${{ github.run_started_at }}`
 
-jobs:
-  job-that-might-fail:
-    ...
-
-  create-issue-if-job-fails:
-    needs: job-that-might-fail
-    runs-on: ubuntu-latest
-    if: always() && needs.job-that-might-fail.result == 'failure'
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-    
-      - name: Create Issue
-        uses: dacbd/create-issue-action@main
-        with:
-          token: ${{ github.token }}
-          title: |
-            [${{ github.workflow }}] failed during [${{ github.event_name }}]
-
-          # Auto-assign person who triggered the failure.
-          assignees: ${{ github.actor }},${{ github.triggering_actor }}
-          labels: CICD
-          body: |
-            ## Failure Report:
-            
-            > [!IMPORTANT]
-            > Details on failed run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-    
-            - Author: @${{ github.triggering_actor }}
-            - Branch: `${{ github.ref }}`
-            - Commit: ${{ github.sha }}
-            - Workflow Path: `${{ github.workflow_ref }}`
-    
-            - [ ] **Task**: Review failed run, fix the issue(s), and re-run until successful.
-    
-            > This issue was created automatically by GitHub, 
-            > through `dacbd/create-issue-action@main` action
-            > and KemingHe's contribution.
-            > **DO NOT** close this issue until resolved.
+    reuse: "true"
+    reuse_reopen: "true"
+    reuse_bump_with_comment: "true"
 ```
 
-### Using outputs
+### Append-only (keep history in comments)
+
+If you prefer not to replace the body on updates, omit `body` and rely on the bump comment to log the event:
 
 ```yml
-...
-steps:
-  - uses: actions/checkout@v4
-  - uses: dacbd/create-issue-action@main
-    id: new-issue
-    with:
-      token: ${{ github.token }}
-      title: Simple test issue
-      body: my new issue
-  - run: |
-      echo "${{ steps.new-issue.outputs.json }}" | jq
-      echo "${{ steps.new-issue.outputs.json }}" | jq .state
-      echo "${{ steps.new-issue.outputs.json }}" | jq .labels[].name
+- name: Reuse issue and only bump with a comment
+  uses: dacbd/create-issue-action@main
+  with:
+    token: ${{ github.token }}
+    title: "Nightly Report"
+    labels: "report,nightly"
+    reuse: "true"
+    reuse_bump_with_comment: "true"
+    # no body — existing body stays intact; a comment will be added to bump/order
 ```
 
-### Transpose issues to a private repo:
-
-```yml
-name: transpose issue
-  issues:
-    types: [labeled]
-job:
-  transpose:
-    runs-on: ubuntu-latest
-    if: contains(github.event.issue.labels.*.name, 'backend')
-    steps:
-      - name: Copy Issue
-        uses: dacbd/create-issue-action@main
-        with:
-          token: ${{ secrets.PAT }}
-          org: octo-org
-          repo: private-backend-service
-          title: ${{ github.event.issue.title }}
-          body: |
-            Closes: ${{ github.event.issue.html_url }}
-            # Body
-            ${{ github.event.issue.body }}
-```
+---
 
 ## Issues & debugging
 
-If you encounter issues with `dacbd/create-issue-action@main`, feel free to create an issue or a PR, happy to take improvements or requests.
+If you encounter issues with `dacbd/create-issue-action@main`, feel free to create an issue or a PR—happy to take improvements or requests.
 
 > [!TIP]
-> - Issue shortcut: https://github.com/dacbd/create-issue-action/issues/new
-> - More verbose logging can be enabled via GitHub Actions feature: [`ACTIONS_STEP_DEBUG`](https://docs.github.com/en/actions/monitoring-and-troubleshooting-workflows/enabling-debug-logging#enabling-step-debug-logging)
+> - Issue shortcut: https://github.com/dacbd/create-issue-action/issues/new  
+> - Enable step debug logging: [`ACTIONS_STEP_DEBUG`](https://docs.github.com/en/actions/monitoring-and-troubleshooting-workflows/enabling-debug-logging#enabling-step-debug-logging)
 
 ## Contributors
 

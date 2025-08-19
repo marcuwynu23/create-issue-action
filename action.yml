@@ -1,42 +1,59 @@
 ---
 name: Create Github Issue
-description: Creates a new github issue as directly as possible
+description: Creates a new GitHub issue, or reuses an existing one by title (and optional labels)
 author: Daniel Barnes
 branding:
   icon: alert-octagon
   color: gray-dark
+
 runs:
   using: node20
   main: ./dist/index.js
+
 inputs:
   token:
-    description: Your Github PAT, defaults to actions token
+    description: Your GitHub token (defaults to actions token)
     required: false
   owner:
-    description: Repo Owner, if not set implied by context.
+    description: Repo owner; if not set, implied by context
     required: false
   repo:
-    description: Repo or impiled by the current context
+    description: Repo name; if not set, implied by context
     required: false
   title:
     description: Issue title
     required: true
   body:
-    description: Body content of issue
+    description: Body content of the issue
     required: false
-  milestone: 
-    description: Milestone associated with issue
+  milestone:
+    description: Milestone associated with the issue
     required: false
   labels:
-    description: CSV of labels (e.x. 'p0-critial,bug,aws')
+    description: CSV of labels (e.g. 'p0-critical,bug,aws'); used for creation and for reuse matching
     required: false
   assignees:
-    description: CSV of github usernames to assign (e.x. 'dacbd,nlf')
+    description: CSV of GitHub usernames to assign (e.g. 'dacbd,nlf')
     required: false
+
+  # ── New reuse options ─────────────────────────────────────────────────────────
+  reuse:
+    description: "If true, reuse an existing issue with the same title (and labels if provided) instead of creating a new one"
+    required: false
+    default: "false"
+  reuse_reopen:
+    description: "If true and the matching issue is closed, reopen it before updating"
+    required: false
+    default: "true"
+  reuse_bump_with_comment:
+    description: "If true, add a short comment when reusing to bump activity/order"
+    required: false
+    default: "true"
+
 outputs:
   json:
-    description: The JSON for the new created issue returned from the GitHub API
+    description: The JSON for the created or reused issue returned from the GitHub API
   html_url:
-    description: The web url of the new issue
+    description: The web URL of the created or reused issue
   number:
-    description: "The new issue's number"
+    description: "The created or reused issue number"
